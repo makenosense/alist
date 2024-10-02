@@ -8,6 +8,7 @@ if [ "$1" = "dev" ]; then
   version="dev"
   webVersion="dev"
 else
+  git tag -d beta
   version=$(git describe --abbrev=0 --tags)
   webVersion=$(wget -qO- -t1 -T2 "https://api.github.com/repos/alist-org/alist-web/releases/latest" | grep "tag_name" | head -n 1 | awk -F ":" '{print $2}' | sed 's/\"//g;s/,//g;s/ //g')
 fi
@@ -85,14 +86,7 @@ BuildDev() {
   cat md5.txt
 }
 
-PrepareBuildDocker() {
-  echo "replace github.com/mattn/go-sqlite3 => github.com/leso-kn/go-sqlite3 v0.0.0-20230710125852-03158dc838ed" >>go.mod
-  go get gorm.io/driver/sqlite@v1.4.4
-  go mod download
-}
-
 BuildDocker() {
-  PrepareBuildDocker
   go build -o ./bin/alist -ldflags="$ldflags" -tags=jsoniter .
 }
 
@@ -110,7 +104,7 @@ PrepareBuildDockerMusl() {
 }
 
 BuildDockerMultiplatform() {
-  PrepareBuildDocker
+  go mod download
 
   # run PrepareBuildDockerMusl before build
   export PATH=$PATH:$PWD/build/musl-libs/bin
@@ -274,6 +268,8 @@ if [ "$1" = "dev" ]; then
     BuildDocker
   elif [ "$2" = "docker-multiplatform" ]; then
       BuildDockerMultiplatform
+  elif [ "$2" = "web" ]; then
+    echo "web only"
   else
     BuildDev
   fi
@@ -292,6 +288,8 @@ elif [ "$1" = "release" ]; then
   elif [ "$2" = "android" ]; then
     BuildReleaseAndroid
     MakeRelease "md5-android.txt"
+  elif [ "$2" = "web" ]; then
+    echo "web only"
   else
     BuildRelease
     MakeRelease "md5.txt"
@@ -300,6 +298,8 @@ elif [ "$1" = "prepare" ]; then
   if [ "$2" = "docker-multiplatform" ]; then
     PrepareBuildDockerMusl
   fi
+elif [ "$1" = "zip" ]; then
+  MakeRelease "$2".txt
 else
   echo -e "Parameter error"
 fi
