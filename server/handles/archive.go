@@ -39,7 +39,7 @@ type ArchiveMetaResp struct {
 
 type ArchiveContentResp struct {
 	ObjResp
-	Children []ArchiveContentResp `json:"children,omitempty"`
+	Children []ArchiveContentResp `json:"children"`
 }
 
 func toObjsRespWithoutSignAndThumb(obj model.Obj) ObjResp {
@@ -120,7 +120,7 @@ func FsArchiveMeta(c *gin.Context) {
 	}
 	s := ""
 	if isEncrypt(meta, reqPath) || setting.GetBool(conf.SignAll) {
-		s = sign.Sign(reqPath)
+		s = sign.SignArchive(reqPath)
 	}
 	api := "/ae"
 	if ret.DriverProviding {
