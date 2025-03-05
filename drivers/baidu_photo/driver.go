@@ -27,9 +27,10 @@ type BaiduPhoto struct {
 	model.Storage
 	Addition
 
-	AccessToken string
-	Uk          int64
-	root        model.Obj
+	// AccessToken string
+	Uk       int64
+	bdstoken string
+	root     model.Obj
 
 	uploadThread int
 }
@@ -48,9 +49,9 @@ func (d *BaiduPhoto) Init(ctx context.Context) error {
 		d.uploadThread, d.UploadThread = 3, "3"
 	}
 
-	if err := d.refreshToken(); err != nil {
-		return err
-	}
+	// if err := d.refreshToken(); err != nil {
+	// 	return err
+	// }
 
 	// root
 	if d.AlbumID != "" {
@@ -73,6 +74,10 @@ func (d *BaiduPhoto) Init(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	d.bdstoken, err = d.getBDStoken()
+	if err != nil {
+		return err
+	}
 	d.Uk, err = strconv.ParseInt(info.YouaID, 10, 64)
 	return err
 }
@@ -82,7 +87,7 @@ func (d *BaiduPhoto) GetRoot(ctx context.Context) (model.Obj, error) {
 }
 
 func (d *BaiduPhoto) Drop(ctx context.Context) error {
-	d.AccessToken = ""
+	// d.AccessToken = ""
 	d.Uk = 0
 	d.root = nil
 	return nil
@@ -140,14 +145,13 @@ func (d *BaiduPhoto) Link(ctx context.Context, file model.Obj, args model.LinkAr
 		// 处理共享相册
 		if d.Uk != file.Uk {
 			// 有概率无法获取到链接
-			return d.linkAlbum(ctx, file, args)
+			// return d.linkAlbum(ctx, file, args)
 
-			// 接口被限制，只能使用cookie
-			// f, err := d.CopyAlbumFile(ctx, file)
-			// if err != nil {
-			// 	return nil, err
-			// }
-			// return d.linkFile(ctx, f, args)
+			f, err := d.CopyAlbumFile(ctx, file)
+			if err != nil {
+				return nil, err
+			}
+			return d.linkFile(ctx, f, args)
 		}
 		return d.linkFile(ctx, &file.File, args)
 	}
@@ -292,11 +296,12 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 	}
 
 	// 尝试获取之前的进度
-	precreateResp, ok := base.GetUploadProgress[*PrecreateResp](d, d.AccessToken, contentMd5)
+	precreateResp, ok := base.GetUploadProgress[*PrecreateResp](d, strconv.FormatInt(d.Uk, 10), contentMd5)
 	if !ok {
 		_, err = d.Post(FILE_API_URL_V1+"/precreate", func(r *resty.Request) {
 			r.SetContext(ctx)
 			r.SetFormData(params)
+			r.SetQueryParam("bdstoken", d.bdstoken)
 		}, &precreateResp)
 		if err != nil {
 			return nil, err
@@ -325,8 +330,8 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 					"path":     params["path"],
 					"partseq":  fmt.Sprint(partseq),
 					"uploadid": precreateResp.UploadID,
+					"app_id":   "16051585",
 				}
-
 				_, err = d.Post("https://c3.pcs.baidu.com/rest/2.0/pcs/superfile2", func(r *resty.Request) {
 					r.SetContext(ctx)
 					r.SetQueryParams(uploadParams)
@@ -343,7 +348,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		if err = threadG.Wait(); err != nil {
 			if errors.Is(err, context.Canceled) {
 				precreateResp.BlockList = utils.SliceFilter(precreateResp.BlockList, func(s int) bool { return s >= 0 })
-				base.SaveUploadProgress(d, precreateResp, d.AccessToken, contentMd5)
+				base.SaveUploadProgress(d, strconv.FormatInt(d.Uk, 10), contentMd5)
 			}
 			return nil, err
 		}
@@ -353,6 +358,7 @@ func (d *BaiduPhoto) Put(ctx context.Context, dstDir model.Obj, stream model.Fil
 		_, err = d.Post(FILE_API_URL_V1+"/create", func(r *resty.Request) {
 			r.SetContext(ctx)
 			r.SetFormData(params)
+			r.SetQueryParam("bdstoken", d.bdstoken)
 		}, &precreateResp)
 		if err != nil {
 			return nil, err
