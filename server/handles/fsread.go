@@ -48,12 +48,28 @@ type ObjResp struct {
 }
 
 type FsListResp struct {
-	Content  []ObjResp `json:"content"`
-	Total    int64     `json:"total"`
-	Readme   string    `json:"readme"`
-	Header   string    `json:"header"`
-	Write    bool      `json:"write"`
-	Provider string    `json:"provider"`
+	Content  []ObjLabelResp `json:"content"`
+	Total    int64          `json:"total"`
+	Readme   string         `json:"readme"`
+	Header   string         `json:"header"`
+	Write    bool           `json:"write"`
+	Provider string         `json:"provider"`
+}
+
+type ObjLabelResp struct {
+	Id          string                     `json:"id"`
+	Path        string                     `json:"path"`
+	Name        string                     `json:"name"`
+	Size        int64                      `json:"size"`
+	IsDir       bool                       `json:"is_dir"`
+	Modified    time.Time                  `json:"modified"`
+	Created     time.Time                  `json:"created"`
+	Sign        string                     `json:"sign"`
+	Thumb       string                     `json:"thumb"`
+	Type        int                        `json:"type"`
+	HashInfoStr string                     `json:"hashinfo"`
+	HashInfo    map[*utils.HashType]string `json:"hash_info"`
+	LabelList   []model.Label              `json:"label_list"`
 }
 
 func FsList(c *gin.Context) {
@@ -77,11 +93,12 @@ func FsList(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !common.CanAccess(user, meta, reqPath, req.Password) {
+	if !common.CanAccessWithRoles(user, meta, reqPath, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect or you have no permission", 403)
 		return
 	}
-	if !user.CanWrite() && !common.CanWrite(meta, reqPath) && req.Refresh {
+	perm := common.MergeRolePermissions(user, reqPath)
+	if !common.HasPermission(perm, common.PermWrite) && !common.CanWrite(meta, reqPath) && req.Refresh {
 		common.ErrorStrResp(c, "Refresh without permission", 403)
 		return
 	}
@@ -90,7 +107,14 @@ func FsList(c *gin.Context) {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	total, objs := pagination(objs, &req.PageReq)
+	filtered := make([]model.Obj, 0, len(objs))
+	for _, obj := range objs {
+		childPath := stdpath.Join(reqPath, obj.GetName())
+		if common.CanReadPathByRole(user, childPath) {
+			filtered = append(filtered, obj)
+		}
+	}
+	total, objs := pagination(filtered, &req.PageReq)
 	provider := "unknown"
 	storage, err := fs.GetStorage(reqPath, &fs.GetStoragesArgs{})
 	if err == nil {
@@ -101,7 +125,7 @@ func FsList(c *gin.Context) {
 		Total:    int64(total),
 		Readme:   getReadme(meta, reqPath),
 		Header:   getHeader(meta, reqPath),
-		Write:    user.CanWrite() || common.CanWrite(meta, reqPath),
+		Write:    common.HasPermission(perm, common.PermWrite) || common.CanWrite(meta, reqPath),
 		Provider: provider,
 	})
 }
@@ -135,7 +159,7 @@ func FsDirs(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !common.CanAccess(user, meta, reqPath, req.Password) {
+	if !common.CanAccessWithRoles(user, meta, reqPath, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect or you have no permission", 403)
 		return
 	}
@@ -144,7 +168,14 @@ func FsDirs(c *gin.Context) {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	dirs := filterDirs(objs)
+	visible := make([]model.Obj, 0, len(objs))
+	for _, obj := range objs {
+		childPath := stdpath.Join(reqPath, obj.GetName())
+		if common.CanReadPathByRole(user, childPath) {
+			visible = append(visible, obj)
+		}
+	}
+	dirs := filterDirs(visible)
 	common.SuccessResp(c, dirs)
 }
 
@@ -207,11 +238,25 @@ func pagination(objs []model.Obj, req *model.PageReq) (int, []model.Obj) {
 	return total, objs[start:end]
 }
 
-func toObjsResp(objs []model.Obj, parent string, encrypt bool) []ObjResp {
-	var resp []ObjResp
+func toObjsResp(objs []model.Obj, parent string, encrypt bool) []ObjLabelResp {
+	var resp []ObjLabelResp
+
+	names := make([]string, 0, len(objs))
 	for _, obj := range objs {
+		if !obj.IsDir() {
+			names = append(names, obj.GetName())
+		}
+	}
+
+	labelsByName, _ := op.GetLabelsByFileNamesPublic(names)
+
+	for _, obj := range objs {
+		var labels []model.Label
+		if !obj.IsDir() {
+			labels = labelsByName[obj.GetName()]
+		}
 		thumb, _ := model.GetThumb(obj)
-		resp = append(resp, ObjResp{
+		resp = append(resp, ObjLabelResp{
 			Id:          obj.GetID(),
 			Path:        obj.GetPath(),
 			Name:        obj.GetName(),
@@ -224,6 +269,7 @@ func toObjsResp(objs []model.Obj, parent string, encrypt bool) []ObjResp {
 			Sign:        common.Sign(obj, parent, encrypt),
 			Thumb:       thumb,
 			Type:        utils.GetObjType(obj.GetName(), obj.IsDir()),
+			LabelList:   labels,
 		})
 	}
 	return resp
@@ -236,11 +282,11 @@ type FsGetReq struct {
 
 type FsGetResp struct {
 	ObjResp
-	RawURL   string    `json:"raw_url"`
-	Readme   string    `json:"readme"`
-	Header   string    `json:"header"`
-	Provider string    `json:"provider"`
-	Related  []ObjResp `json:"related"`
+	RawURL   string         `json:"raw_url"`
+	Readme   string         `json:"readme"`
+	Header   string         `json:"header"`
+	Provider string         `json:"provider"`
+	Related  []ObjLabelResp `json:"related"`
 }
 
 func FsGet(c *gin.Context) {
@@ -263,7 +309,7 @@ func FsGet(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !common.CanAccess(user, meta, reqPath, req.Password) {
+	if !common.CanAccessWithRoles(user, meta, reqPath, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect or you have no permission", 403)
 		return
 	}
@@ -391,7 +437,7 @@ func FsOther(c *gin.Context) {
 		}
 	}
 	c.Set("meta", meta)
-	if !common.CanAccess(user, meta, req.Path, req.Password) {
+	if !common.CanAccessWithRoles(user, meta, req.Path, req.Password) {
 		common.ErrorStrResp(c, "password is incorrect or you have no permission", 403)
 		return
 	}

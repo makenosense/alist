@@ -78,13 +78,18 @@ func FsArchiveMeta(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(*model.User)
-	if !user.CanReadArchives() {
-		common.ErrorResp(c, errs.PermissionDenied, 403)
-		return
-	}
 	reqPath, err := user.JoinPath(req.Path)
 	if err != nil {
 		common.ErrorResp(c, err, 403)
+		return
+	}
+	if !common.CheckPathLimitWithRoles(user, reqPath) {
+		common.ErrorResp(c, errs.PermissionDenied, 403)
+		return
+	}
+	perm := common.MergeRolePermissions(user, reqPath)
+	if !common.HasPermission(perm, common.PermReadArchives) {
+		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
 	meta, err := op.GetNearestMeta(reqPath)
@@ -156,13 +161,18 @@ func FsArchiveList(c *gin.Context) {
 	}
 	req.Validate()
 	user := c.MustGet("user").(*model.User)
-	if !user.CanReadArchives() {
-		common.ErrorResp(c, errs.PermissionDenied, 403)
-		return
-	}
 	reqPath, err := user.JoinPath(req.Path)
 	if err != nil {
 		common.ErrorResp(c, err, 403)
+		return
+	}
+	if !common.CheckPathLimitWithRoles(user, reqPath) {
+		common.ErrorResp(c, errs.PermissionDenied, 403)
+		return
+	}
+	perm := common.MergeRolePermissions(user, reqPath)
+	if !common.HasPermission(perm, common.PermReadArchives) {
+		common.ErrorResp(c, errs.PermissionDenied, 403)
 		return
 	}
 	meta, err := op.GetNearestMeta(reqPath)
@@ -242,15 +252,15 @@ func FsArchiveDecompress(c *gin.Context) {
 		return
 	}
 	user := c.MustGet("user").(*model.User)
-	if !user.CanDecompress() {
-		common.ErrorResp(c, errs.PermissionDenied, 403)
-		return
-	}
 	srcPaths := make([]string, 0, len(req.Name))
 	for _, name := range req.Name {
 		srcPath, err := user.JoinPath(stdpath.Join(req.SrcDir, name))
 		if err != nil {
 			common.ErrorResp(c, err, 403)
+			return
+		}
+		if !common.CheckPathLimitWithRoles(user, srcPath) {
+			common.ErrorResp(c, errs.PermissionDenied, 403)
 			return
 		}
 		srcPaths = append(srcPaths, srcPath)
@@ -260,8 +270,17 @@ func FsArchiveDecompress(c *gin.Context) {
 		common.ErrorResp(c, err, 403)
 		return
 	}
+	if !common.CheckPathLimitWithRoles(user, dstDir) {
+		common.ErrorResp(c, errs.PermissionDenied, 403)
+		return
+	}
 	tasks := make([]task.TaskExtensionInfo, 0, len(srcPaths))
 	for _, srcPath := range srcPaths {
+		perm := common.MergeRolePermissions(user, srcPath)
+		if !common.HasPermission(perm, common.PermDecompress) {
+			common.ErrorResp(c, errs.PermissionDenied, 403)
+			return
+		}
 		t, e := fs.ArchiveDecompress(c, srcPath, dstDir, model.ArchiveDecompressArgs{
 			ArchiveInnerArgs: model.ArchiveInnerArgs{
 				ArchiveArgs: model.ArchiveArgs{

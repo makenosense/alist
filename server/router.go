@@ -61,6 +61,7 @@ func Init(e *gin.Engine) {
 	api.POST("/auth/login", handles.Login)
 	api.POST("/auth/login/hash", handles.LoginHash)
 	api.POST("/auth/login/ldap", handles.LoginLdap)
+	api.POST("/auth/register", handles.Register)
 	auth.GET("/me", handles.CurrentUser)
 	auth.POST("/me/update", handles.UpdateCurrent)
 	auth.GET("/me/sshkey/list", handles.ListMyPublicKey)
@@ -92,6 +93,8 @@ func Init(e *gin.Engine) {
 
 	_fs(auth.Group("/fs"))
 	_task(auth.Group("/task", middlewares.AuthNotGuest))
+	_label(auth.Group("/label"))
+	_labelFileBinding(auth.Group("/label_file_binding"))
 	admin(auth.Group("/admin", middlewares.AuthAdmin))
 	if flags.Debug || flags.Dev {
 		debug(g.Group("/debug"))
@@ -119,6 +122,13 @@ func admin(g *gin.RouterGroup) {
 	user.POST("/del_cache", handles.DelUserCache)
 	user.GET("/sshkey/list", handles.ListPublicKeys)
 	user.POST("/sshkey/delete", handles.DeletePublicKey)
+
+	role := g.Group("/role")
+	role.GET("/list", handles.ListRoles)
+	role.GET("/get", handles.GetRole)
+	role.POST("/create", handles.CreateRole)
+	role.POST("/update", handles.UpdateRole)
+	role.POST("/delete", handles.DeleteRole)
 
 	storage := g.Group("/storage")
 	storage.GET("/list", handles.ListStorages)
@@ -161,6 +171,19 @@ func admin(g *gin.RouterGroup) {
 	index.POST("/stop", middlewares.SearchIndex, handles.StopIndex)
 	index.POST("/clear", middlewares.SearchIndex, handles.ClearIndex)
 	index.GET("/progress", middlewares.SearchIndex, handles.GetProgress)
+
+	label := g.Group("/label")
+	label.POST("/create", handles.CreateLabel)
+	label.POST("/update", handles.UpdateLabel)
+	label.POST("/delete", handles.DeleteLabel)
+
+	labelFileBinding := g.Group("/label_file_binding")
+	labelFileBinding.GET("/list", handles.ListLabelFileBinding)
+	labelFileBinding.POST("/create", handles.CreateLabelFileBinDing)
+	labelFileBinding.POST("/create_batch", handles.CreateLabelFileBinDingBatch)
+	labelFileBinding.POST("/delete", handles.DelLabelByFileName)
+	labelFileBinding.POST("/restore", handles.RestoreLabelFileBinding)
+
 }
 
 func _fs(g *gin.RouterGroup) {
@@ -194,6 +217,16 @@ func _fs(g *gin.RouterGroup) {
 
 func _task(g *gin.RouterGroup) {
 	handles.SetupTaskRoute(g)
+}
+
+func _label(g *gin.RouterGroup) {
+	g.GET("/list", handles.ListLabel)
+	g.GET("/get", handles.GetLabel)
+}
+
+func _labelFileBinding(g *gin.RouterGroup) {
+	g.GET("/get", handles.GetLabelByFileName)
+	g.GET("/get_file_by_label", handles.GetFileByLabel)
 }
 
 func Cors(r *gin.Engine) {

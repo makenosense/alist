@@ -10,12 +10,15 @@ const (
 
 const (
 	// site
-	VERSION      = "version"
-	SiteTitle    = "site_title"
-	Announcement = "announcement"
-	AllowIndexed = "allow_indexed"
-	AllowMounted = "allow_mounted"
-	RobotsTxt    = "robots_txt"
+	VERSION       = "version"
+	SiteTitle     = "site_title"
+	Announcement  = "announcement"
+	AllowIndexed  = "allow_indexed"
+	AllowMounted  = "allow_mounted"
+	RobotsTxt     = "robots_txt"
+	AllowRegister = "allow_register"
+	DefaultRole   = "default_role"
+	UseNewui      = "use_newui"
 
 	Logo      = "logo"
 	Favicon   = "favicon"

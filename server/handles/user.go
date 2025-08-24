@@ -1,6 +1,7 @@
 package handles
 
 import (
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"strconv"
 
 	"github.com/alist-org/alist/v3/internal/model"
@@ -35,6 +36,9 @@ func CreateUser(c *gin.Context) {
 		common.ErrorResp(c, err, 400)
 		return
 	}
+	if len(req.Role) == 0 {
+		req.Role = model.Roles{op.GetDefaultRoleID()}
+	}
 	if req.IsAdmin() || req.IsGuest() {
 		common.ErrorStrResp(c, "admin or guest user can not be created", 400, true)
 		return
@@ -60,10 +64,18 @@ func UpdateUser(c *gin.Context) {
 		common.ErrorResp(c, err, 500)
 		return
 	}
-	if user.Role != req.Role {
-		common.ErrorStrResp(c, "role can not be changed", 400)
-		return
+
+	if user.Username == "admin" {
+		if !utils.SliceEqual(user.Role, req.Role) {
+			common.ErrorStrResp(c, "cannot change role of admin user", 403)
+			return
+		}
+		//if user.Username != req.Username {
+		//	common.ErrorStrResp(c, "cannot change username of admin user", 403)
+		//	return
+		//}
 	}
+
 	if req.Password == "" {
 		req.PwdHash = user.PwdHash
 		req.Salt = user.Salt
@@ -74,9 +86,16 @@ func UpdateUser(c *gin.Context) {
 	if req.OtpSecret == "" {
 		req.OtpSecret = user.OtpSecret
 	}
-	if req.Disabled && req.IsAdmin() {
-		common.ErrorStrResp(c, "admin user can not be disabled", 400)
-		return
+	if req.Disabled && user.IsAdmin() {
+		count, err := op.CountEnabledAdminsExcluding(user.ID)
+		if err != nil {
+			common.ErrorResp(c, err, 500)
+			return
+		}
+		if count == 0 {
+			common.ErrorStrResp(c, "at least one enabled admin must be kept", 400)
+			return
+		}
 	}
 	if err := op.UpdateUser(&req); err != nil {
 		common.ErrorResp(c, err, 500)

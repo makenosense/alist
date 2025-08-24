@@ -4,11 +4,15 @@ import (
 	"bytes"
 	"encoding/base64"
 	"image/png"
+	"path"
+	"strings"
 	"time"
 
 	"github.com/Xhofe/go-cache"
+	"github.com/alist-org/alist/v3/internal/conf"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
+	"github.com/alist-org/alist/v3/internal/setting"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
@@ -87,15 +91,47 @@ func loginHash(c *gin.Context, req *LoginReq) {
 	loginCache.Del(ip)
 }
 
+type RegisterReq struct {
+	Username string `json:"username" binding:"required"`
+	Password string `json:"password" binding:"required"`
+}
+
+// Register a new user
+func Register(c *gin.Context) {
+	if !setting.GetBool(conf.AllowRegister) {
+		common.ErrorStrResp(c, "registration is disabled", 403)
+		return
+	}
+	var req RegisterReq
+	if err := c.ShouldBind(&req); err != nil {
+		common.ErrorResp(c, err, 400)
+		return
+	}
+	user := &model.User{
+		Username: req.Username,
+		Role:     model.Roles{op.GetDefaultRoleID()},
+		Authn:    "[]",
+	}
+	user.SetPassword(req.Password)
+	if err := op.CreateUser(user); err != nil {
+		common.ErrorResp(c, err, 500, true)
+		return
+	}
+	common.SuccessResp(c)
+}
+
 type UserResp struct {
 	model.User
-	Otp bool `json:"otp"`
+	Otp         bool                    `json:"otp"`
+	RoleNames   []string                `json:"role_names"`
+	Permissions []model.PermissionEntry `json:"permissions"`
 }
 
 // CurrentUser get current user by token
 // if token is empty, return guest user
 func CurrentUser(c *gin.Context) {
 	user := c.MustGet("user").(*model.User)
+
 	userResp := UserResp{
 		User: *user,
 	}
@@ -103,6 +139,30 @@ func CurrentUser(c *gin.Context) {
 	if userResp.OtpSecret != "" {
 		userResp.Otp = true
 	}
+
+	var roleNames []string
+	permMap := map[string]int32{}
+	addedPaths := map[string]bool{}
+
+	for _, role := range user.RolesDetail {
+		roleNames = append(roleNames, role.Name)
+		for _, entry := range role.PermissionScopes {
+			cleanPath := path.Clean("/" + strings.TrimPrefix(entry.Path, "/"))
+			permMap[cleanPath] |= entry.Permission
+		}
+	}
+	userResp.RoleNames = roleNames
+
+	for fullPath, perm := range permMap {
+		if !addedPaths[fullPath] {
+			userResp.Permissions = append(userResp.Permissions, model.PermissionEntry{
+				Path:       fullPath,
+				Permission: perm,
+			})
+			addedPaths[fullPath] = true
+		}
+	}
+
 	common.SuccessResp(c, userResp)
 }
 

@@ -14,6 +14,21 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
+func getRoleOptions() string {
+	roles, _, err := op.GetRoles(1, model.MaxInt)
+	if err != nil {
+		return ""
+	}
+	names := make([]string, 0, len(roles))
+	for _, r := range roles {
+		if r.Name == "admin" || r.Name == "guest" {
+			continue
+		}
+		names = append(names, r.Name)
+	}
+	return strings.Join(names, ",")
+}
+
 func ResetToken(c *gin.Context) {
 	token := random.Token()
 	item := model.SettingItem{Key: "token", Value: token, Type: conf.TypeString, Group: model.SINGLE, Flag: model.PRIVATE}
@@ -34,12 +49,34 @@ func GetSetting(c *gin.Context) {
 			common.ErrorResp(c, err, 400)
 			return
 		}
+		if item.Key == conf.DefaultRole {
+			copy := *item
+			copy.Options = getRoleOptions()
+			if id, err := strconv.Atoi(copy.Value); err == nil {
+				if r, err := op.GetRole(uint(id)); err == nil {
+					copy.Value = r.Name
+				}
+			}
+			common.SuccessResp(c, copy)
+			return
+		}
 		common.SuccessResp(c, item)
 	} else {
 		items, err := op.GetSettingItemInKeys(strings.Split(keys, ","))
 		if err != nil {
 			common.ErrorResp(c, err, 400)
 			return
+		}
+		for i := range items {
+			if items[i].Key == conf.DefaultRole {
+				if id, err := strconv.Atoi(items[i].Value); err == nil {
+					if r, err := op.GetRole(uint(id)); err == nil {
+						items[i].Value = r.Name
+					}
+				}
+				items[i].Options = getRoleOptions()
+				break
+			}
 		}
 		common.SuccessResp(c, items)
 	}
@@ -51,6 +88,22 @@ func SaveSettings(c *gin.Context) {
 		common.ErrorResp(c, err, 400)
 		return
 	}
+
+	for i := range req {
+		if req[i].Key == conf.DefaultRole {
+			role, err := op.GetRoleByName(req[i].Value)
+			if err != nil {
+				common.ErrorResp(c, err, 400)
+				return
+			}
+			if role.Name == "admin" || role.Name == "guest" {
+				common.ErrorStrResp(c, "cannot set admin or guest as default role", 400)
+				return
+			}
+			req[i].Value = strconv.Itoa(int(role.ID))
+		}
+	}
+
 	if err := op.SaveSettingItems(req); err != nil {
 		common.ErrorResp(c, err, 500)
 	} else {
@@ -87,6 +140,17 @@ func ListSettings(c *gin.Context) {
 	if err != nil {
 		common.ErrorResp(c, err, 400)
 		return
+	}
+	for i := range settings {
+		if settings[i].Key == conf.DefaultRole {
+			if id, err := strconv.Atoi(settings[i].Value); err == nil {
+				if r, err := op.GetRole(uint(id)); err == nil {
+					settings[i].Value = r.Name
+				}
+			}
+			settings[i].Options = getRoleOptions()
+			break
+		}
 	}
 	common.SuccessResp(c, settings)
 }
