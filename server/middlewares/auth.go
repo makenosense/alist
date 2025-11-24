@@ -2,12 +2,16 @@ package middlewares
 
 import (
 	"crypto/subtle"
+	"errors"
 	"fmt"
 
 	"github.com/alist-org/alist/v3/internal/conf"
+	"github.com/alist-org/alist/v3/internal/device"
+	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
 	"github.com/alist-org/alist/v3/internal/setting"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	log "github.com/sirupsen/logrus"
@@ -24,7 +28,9 @@ func Auth(c *gin.Context) {
 			c.Abort()
 			return
 		}
-		c.Set("user", admin)
+		if !HandleSession(c, admin) {
+			return
+		}
 		log.Debugf("use admin token: %+v", admin)
 		c.Next()
 		return
@@ -50,7 +56,9 @@ func Auth(c *gin.Context) {
 			}
 			guest.RolesDetail = roles
 		}
-		c.Set("user", guest)
+		if !HandleSession(c, guest) {
+			return
+		}
 		log.Debugf("use empty token: %+v", guest)
 		c.Next()
 		return
@@ -87,9 +95,34 @@ func Auth(c *gin.Context) {
 		}
 		user.RolesDetail = roles
 	}
-	c.Set("user", user)
+	if !HandleSession(c, user) {
+		return
+	}
 	log.Debugf("use login token: %+v", user)
 	c.Next()
+}
+
+// HandleSession verifies device sessions and stores context values.
+func HandleSession(c *gin.Context, user *model.User) bool {
+	clientID := c.GetHeader("Client-Id")
+	if clientID == "" {
+		clientID = c.Query("client_id")
+	}
+	key := utils.GetMD5EncodeStr(fmt.Sprintf("%d-%s", user.ID, clientID))
+	if err := device.Handle(user.ID, key, c.Request.UserAgent(), c.ClientIP()); err != nil {
+		token := c.GetHeader("Authorization")
+		if errors.Is(err, errs.SessionInactive) {
+			_ = common.InvalidateToken(token)
+			common.ErrorResp(c, err, 401)
+		} else {
+			common.ErrorResp(c, err, 403)
+		}
+		c.Abort()
+		return false
+	}
+	c.Set("device_key", key)
+	c.Set("user", user)
+	return true
 }
 
 func Authn(c *gin.Context) {

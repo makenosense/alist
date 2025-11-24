@@ -57,7 +57,9 @@
     - [x] [又拍云对象存储](https://www.upyun.com/products/file-storage)
     - [x] WebDav(支持无API的OneDrive/SharePoint)
     - [x] Teambition（[中国](https://www.teambition.com/ )，[国际](https://us.teambition.com/ )）
+    - [x] [MediaFire](https://www.mediafire.com)
     - [x] [分秒帧](https://www.mediatrack.cn/)
+    - [x] [ProtonDrive](https://proton.me/drive)
     - [x] [和彩云](https://yun.139.com/) (个人云, 家庭云，共享群组)
     - [x] [Yandex.Disk](https://disk.yandex.com/)
     - [x] [百度网盘](http://pan.baidu.com/)
@@ -118,8 +120,6 @@ AList 是一个开源软件，如果你碰巧喜欢这个项目，并希望我�
 ### 特别赞助
 
 - [VidHub](https://apps.apple.com/app/apple-store/id1659622164?pt=118612019&ct=alist&mt=8) - 苹果生态下优雅的网盘视频播放器，iPhone，iPad，Mac，Apple TV全平台支持。
-- [亚洲云](https://www.asiayun.com/aff/QQCOOQKZ) - 高防服务器|服务器租用|福州高防|广东电信|香港服务器|美国服务器|海外服务器 - 国内靠谱的企业级云计算服务提供商 (国内API服务器赞助)
-- [找资源](http://zhaoziyuan2.cc/) - 阿里云盘资源搜索引擎
 
 ## 贡献者
 

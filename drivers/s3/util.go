@@ -109,13 +109,13 @@ func (d *S3) listV1(prefix string, args model.ListArgs) ([]model.Obj, error) {
 			if !args.S3ShowPlaceholder && (name == getPlaceholderName(d.Placeholder) || name == d.Placeholder) {
 				continue
 			}
-			file := model.Object{
+			file := &model.Object{
 				//Id:        *object.Key,
 				Name:     name,
 				Size:     *object.Size,
 				Modified: *object.LastModified,
 			}
-			files = append(files, &file)
+			files = append(files, model.WrapObjStorageClass(file, aws.StringValue(object.StorageClass)))
 		}
 		if listObjectsResult.IsTruncated == nil {
 			return nil, errors.New("IsTruncated nil")
@@ -164,13 +164,13 @@ func (d *S3) listV2(prefix string, args model.ListArgs) ([]model.Obj, error) {
 			if !args.S3ShowPlaceholder && (name == getPlaceholderName(d.Placeholder) || name == d.Placeholder) {
 				continue
 			}
-			file := model.Object{
+			file := &model.Object{
 				//Id:        *object.Key,
 				Name:     name,
 				Size:     *object.Size,
 				Modified: *object.LastModified,
 			}
-			files = append(files, &file)
+			files = append(files, model.WrapObjStorageClass(file, aws.StringValue(object.StorageClass)))
 		}
 		if !aws.BoolValue(listObjectsResult.IsTruncated) {
 			break
@@ -201,6 +201,9 @@ func (d *S3) copyFile(ctx context.Context, src string, dst string) error {
 		Bucket:     &d.Bucket,
 		CopySource: aws.String(url.PathEscape(d.Bucket + "/" + srcKey)),
 		Key:        &dstKey,
+	}
+	if storageClass := d.resolveStorageClass(); storageClass != nil {
+		input.StorageClass = storageClass
 	}
 	_, err := d.client.CopyObject(input)
 	return err

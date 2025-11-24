@@ -3,6 +3,8 @@ package handles
 import (
 	"bytes"
 	"encoding/base64"
+	"errors"
+	"fmt"
 	"image/png"
 	"path"
 	"strings"
@@ -10,9 +12,13 @@ import (
 
 	"github.com/Xhofe/go-cache"
 	"github.com/alist-org/alist/v3/internal/conf"
+	"github.com/alist-org/alist/v3/internal/device"
+	"github.com/alist-org/alist/v3/internal/errs"
 	"github.com/alist-org/alist/v3/internal/model"
 	"github.com/alist-org/alist/v3/internal/op"
+	"github.com/alist-org/alist/v3/internal/session"
 	"github.com/alist-org/alist/v3/internal/setting"
+	"github.com/alist-org/alist/v3/pkg/utils"
 	"github.com/alist-org/alist/v3/server/common"
 	"github.com/gin-gonic/gin"
 	"github.com/pquerna/otp/totp"
@@ -81,13 +87,30 @@ func loginHash(c *gin.Context, req *LoginReq) {
 			return
 		}
 	}
+
+	clientID := c.GetHeader("Client-Id")
+	if clientID == "" {
+		clientID = c.Query("client_id")
+	}
+	key := utils.GetMD5EncodeStr(fmt.Sprintf("%d-%s",
+		user.ID, clientID))
+
+	if err := device.EnsureActiveOnLogin(user.ID, key, c.Request.UserAgent(), c.ClientIP()); err != nil {
+		if errors.Is(err, errs.TooManyDevices) {
+			common.ErrorResp(c, err, 403)
+		} else {
+			common.ErrorResp(c, err, 400, true)
+		}
+		return
+	}
+
 	// generate token
 	token, err := common.GenerateToken(user)
 	if err != nil {
 		common.ErrorResp(c, err, 400, true)
 		return
 	}
-	common.SuccessResp(c, gin.H{"token": token})
+	common.SuccessResp(c, gin.H{"token": token, "device_key": key})
 	loginCache.Del(ip)
 }
 
@@ -142,25 +165,25 @@ func CurrentUser(c *gin.Context) {
 
 	var roleNames []string
 	permMap := map[string]int32{}
-	addedPaths := map[string]bool{}
+	paths := make([]string, 0)
 
 	for _, role := range user.RolesDetail {
 		roleNames = append(roleNames, role.Name)
 		for _, entry := range role.PermissionScopes {
 			cleanPath := path.Clean("/" + strings.TrimPrefix(entry.Path, "/"))
+			if _, ok := permMap[cleanPath]; !ok {
+				paths = append(paths, cleanPath)
+			}
 			permMap[cleanPath] |= entry.Permission
 		}
 	}
 	userResp.RoleNames = roleNames
 
-	for fullPath, perm := range permMap {
-		if !addedPaths[fullPath] {
-			userResp.Permissions = append(userResp.Permissions, model.PermissionEntry{
-				Path:       fullPath,
-				Permission: perm,
-			})
-			addedPaths[fullPath] = true
-		}
+	for _, fullPath := range paths {
+		userResp.Permissions = append(userResp.Permissions, model.PermissionEntry{
+			Path:       fullPath,
+			Permission: permMap[fullPath],
+		})
 	}
 
 	common.SuccessResp(c, userResp)
@@ -247,6 +270,13 @@ func Verify2FA(c *gin.Context) {
 }
 
 func LogOut(c *gin.Context) {
+	if keyVal, ok := c.Get("device_key"); ok {
+		if err := session.MarkInactive(keyVal.(string)); err != nil {
+			common.ErrorResp(c, err, 500)
+			return
+		}
+		c.Set("session_inactive", true)
+	}
 	err := common.InvalidateToken(c.GetHeader("Authorization"))
 	if err != nil {
 		common.ErrorResp(c, err, 500)
